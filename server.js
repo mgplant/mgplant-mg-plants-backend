@@ -1,21 +1,33 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const bcrypt = require('bcryptjs'); // Security tool for encrypting passwords
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
-// Connect to MongoDB
+// 1. Connect to MongoDB
 mongoose.connect('mongodb+srv://mgplants_db_user:7PFZockvsScku3gi@cluster0.cqsdy2b.mongodb.net/?appName=Cluster0', {
     useNewUrlParser: true,
     useUnifiedTopology: true
 }).then(async () => {
     console.log('🌱 MG Plants Database Connected!');
-    await seedInitialProducts();
+    await seedInitialProducts(); // Loads your plants if the database is empty
 }).catch(err => console.log('Database connection error:', err));
 
-// Plant Schema
+
+// 2. Database Schemas (The Blueprints)
+
+// User Blueprint
+const userSchema = new mongoose.Schema({
+    name: { type: String, required: true },
+    email: { type: String, required: true, unique: true },
+    password: { type: String, required: true }
+});
+const User = mongoose.model('User', userSchema);
+
+// Product Blueprint
 const productSchema = new mongoose.Schema({
     id: String,
     name: String,
@@ -33,10 +45,10 @@ const productSchema = new mongoose.Schema({
     diff: String,
     stockQuantity: { type: Number, default: 50 }
 });
-
 const Product = mongoose.model('Product', productSchema);
 
-// Initial 25 Plants Dataset
+
+// 3. Plant Inventory Data (All 25 Plants)
 const initialProducts = [
   { id: 'p1', name: 'Money Plant', category: 'Indoor Plants', price: 149, origPrice: 199, rating: 4.8, bestSeller: true, image: 'https://tse1.mm.bing.net/th?q=Golden+Pothos+Money+Plant+trailing+indoor+pot&w=600&h=600&c=7&rs=1&p=0', shortDesc: 'Low-maintenance vine that thrives in low light.', desc: 'Golden Pothos vine known to purify air.', light: 'Indirect Light', water: 'Every 5-7 days', size: '8-12 inches', diff: 'Very Easy' },
   { id: 'p2', name: 'Snake Plant', category: 'Indoor Plants', price: 199, origPrice: 279, rating: 4.9, bestSeller: true, image: 'https://tse2.mm.bing.net/th?q=Snake+Plant+Sansevieria+tall+leaves+indoor+pot&w=600&h=600&c=7&rs=1&p=0', shortDesc: 'Ultra-hardy air cleanser.', desc: 'Converts CO2 into oxygen overnight.', light: 'Low to Bright', water: 'Every 14 days', size: '10-14 inches', diff: 'Beginner' },
@@ -73,7 +85,58 @@ async function seedInitialProducts() {
     }
 }
 
-// 1. API: Get all products
+
+// 4. API Endpoints (How the website talks to the server)
+
+// Register a new user
+app.post('/api/register', async (req, res) => {
+    try {
+        const { name, email, password } = req.body;
+        
+        // Check if email is already in use
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+            return res.status(400).json({ success: false, message: "Email already registered." });
+        }
+
+        // Encrypt the password before saving
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+
+        // Save the new user to the database
+        const newUser = new User({ name, email, password: hashedPassword });
+        await newUser.save();
+
+        res.json({ success: true, message: "Account created successfully!", user: { name: newUser.name, email: newUser.email } });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Server error." });
+    }
+});
+
+// Login an existing user
+app.post('/api/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        // Look up the user
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(400).json({ success: false, message: "Invalid email or password." });
+        }
+
+        // Check if the password matches the encrypted one
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(400).json({ success: false, message: "Invalid email or password." });
+        }
+
+        res.json({ success: true, message: "Login successful!", user: { name: user.name, email: user.email } });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Server error." });
+    }
+});
+
+// Send all plants to the website
 app.get('/api/products', async (req, res) => {
     try {
         const plants = await Product.find();
@@ -83,13 +146,15 @@ app.get('/api/products', async (req, res) => {
     }
 });
 
-// 2. API: Process Order
+// Process a checkout order
 app.post('/api/checkout', async (req, res) => {
     const { name, phone, address, items, total } = req.body;
     console.log(`📦 New Order from ${name} (${phone}) - Total: ₹${total}`);
     res.json({ success: true, message: "Order stored successfully!" });
 });
 
+
+// 5. Start the Server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`🚀 MG Plants Server is running on port ${PORT}`);
