@@ -8,7 +8,7 @@ app.use(express.json());
 app.use(cors()); 
 
 // Connect to Database (We will add your real link later)
-mongoose.connect('YOUR_MONGODB_LINK_GOES_HERE', {
+mongoose.connect('mongodb+srv://mgplants_db_user:7PFZockvsScku3gi@cluster0.cqsdy2b.mongodb.net/?appName=Cluster0', {
     useNewUrlParser: true,
     useUnifiedTopology: true
 }).then(() => console.log('🌱 MG Plants Database Connected!'))
