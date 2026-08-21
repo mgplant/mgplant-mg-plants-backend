@@ -4,7 +4,7 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 
 const app = express();
-app.use(express.json({ limit: '10mb' })); // Increased limit to support base64 image uploads in reviews
+app.use(express.json({ limit: '10mb' })); // Allows large image uploads in reviews & returns
 app.use(cors());
 
 // --- 1. MONGODB CONNECTION ---
@@ -21,7 +21,6 @@ mongoose.connect(MONGO_URI)
 const userSchema = new mongoose.Schema({ name: String, email: { type: String, unique: true }, password: String });
 const User = mongoose.model('User', userSchema);
 
-// 🆕 UPDATED: Added reviews array to support customer star ratings and photos
 const productSchema = new mongoose.Schema({ 
   id: String, 
   name: String, 
@@ -49,6 +48,9 @@ const orderSchema = new mongoose.Schema({
   totalAmount: Number, 
   status: { type: String, default: 'Pending' }, 
   paymentStatus: { type: String, default: 'Payment Pending' }, 
+  returnReason: String,
+  returnImage: String,
+  refundRequested: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now } 
 });
 const Order = mongoose.model('Order', orderSchema);
@@ -67,7 +69,6 @@ app.post('/api/admin/products/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: 'Update failed' }); }
 });
 
-// 🆕 NEW: Customer Review Submission Route (Supports photos)
 app.post('/api/review/:id', async (req, res) => {
   try {
     const product = await Product.findOne({ id: req.params.id });
@@ -77,7 +78,7 @@ app.post('/api/review/:id', async (req, res) => {
       user: req.body.user,
       rating: Number(req.body.rating),
       comment: req.body.comment,
-      image: req.body.image || null // Base64 image from frontend
+      image: req.body.image || null
     });
 
     await product.save();
@@ -100,30 +101,34 @@ app.post('/api/orders', async (req, res) => {
 
 app.get('/api/admin/orders', async (req, res) => { try { res.json(await Order.find().sort({ createdAt: -1 })); } catch (err) { res.status(500).json({ success: false }); } });
 
-// Update Delivery Status Route (Handles ARTO & Refund processing from Admin Panel)
 app.post('/api/admin/order-status/:id', async (req, res) => {
-  try {
-    await Order.findByIdAndUpdate(req.params.id, { status: req.body.status });
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ success: false }); }
+  try { await Order.findByIdAndUpdate(req.params.id, { status: req.body.status }); res.json({ success: true }); } catch (err) { res.status(500).json({ success: false }); }
 });
 
-// Update Payment Status Route (Paid vs Payment Pending)
 app.post('/api/admin/payment-status/:id', async (req, res) => {
-  try {
-    await Order.findByIdAndUpdate(req.params.id, { paymentStatus: req.body.paymentStatus });
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ success: false }); }
+  try { await Order.findByIdAndUpdate(req.params.id, { paymentStatus: req.body.paymentStatus }); res.json({ success: true }); } catch (err) { res.status(500).json({ success: false }); }
 });
 
-// Customer ARTO (Return) Request Endpoint
 app.post('/api/orders/return/:id', async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false });
     order.status = 'ARTO Request';
+    order.returnReason = req.body.reason;
+    order.returnImage = req.body.image;
     await order.save();
     res.json({ success: true, message: 'Return requested.' });
+  } catch (err) { res.status(500).json({ success: false }); }
+});
+
+app.post('/api/orders/refund/:id', async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ success: false });
+    order.refundRequested = true;
+    order.status = 'Refund Processing'; 
+    await order.save();
+    res.json({ success: true, message: 'Refund requested.' });
   } catch (err) { res.status(500).json({ success: false }); }
 });
 
