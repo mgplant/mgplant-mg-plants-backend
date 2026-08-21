@@ -147,5 +147,4 @@ app.post('/api/orders/cancel/:id', async (req, res) => {
 
 // --- 5. START SERVER ---
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 MG Plants Backend running on port ${PORT}`));  
-    
+app.listen(PORT, () => console.log(`🚀 MG Plants Backend running on port ${PORT}`));
