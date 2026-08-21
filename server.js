@@ -1,7 +1,6 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-const nodemailer = require('nodemailer');
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -73,16 +72,45 @@ const orderSchema = new mongoose.Schema({
 });
 const Order = mongoose.model('Order', orderSchema);
 
-// --- 3. EMAIL TRANSPORTER (ZOHO INDIA SMTP) ---
-const transporter = nodemailer.createTransport({
-  host: 'smtp.zoho.in',
-  port: 465,
-  secure: true,
-  auth: {
-    user: 'mgplants@zohomail.in', // ✅ Updated to your exact Zoho email
-    pass: '1rWBF8EgC9mB'            // ✅ Configured Zoho App Password
+// --- 3. BREVO HTTP EMAIL API ---
+const BREVO_API_KEY = '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'; 
+
+async function sendOtpViaBrevo(recipientEmail, otpCode) {
+  try {
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'accept': 'application/json',
+        'api-key': BREVO_API_KEY,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        sender: { name: "MG Plants", email: "mgplants@zohomail.in" },
+        to: [{ email: recipientEmail }],
+        subject: `Your Login OTP for MG Plants: ${otpCode}`,
+        htmlContent: `
+          <div style="font-family: Arial, sans-serif; max-width: 500px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 10px;">
+            <h2 style="color: #15803d;">MG Plants Security Verification</h2>
+            <p>Hello,</p>
+            <p>Use the following 6-digit One-Time Password (OTP) to securely log in to your account:</p>
+            <div style="font-size: 26px; font-weight: bold; letter-spacing: 4px; color: #0f172a; padding: 12px; background: #f0fdf4; text-align: center; border-radius: 8px; border: 1px solid #86efac;">
+              ${otpCode}
+            </div>
+            <p style="font-size: 12px; color: #64748b; margin-top: 15px;">This OTP is valid for 5 minutes. If you did not request this, please ignore this email.</p>
+          </div>`
+      })
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      console.warn('Brevo API Error:', data);
+    } else {
+      console.log('✅ OTP email successfully dispatched via Brevo API');
+    }
+  } catch (err) {
+    console.error('Email sending error:', err.message);
   }
-});
+}
 
 // --- 4. OTP AUTHENTICATION & LOGIN LOGS ---
 app.post('/api/auth/send-otp', async (req, res) => {
@@ -96,25 +124,8 @@ app.post('/api/auth/send-otp', async (req, res) => {
     await Otp.deleteMany({ email: cleanEmail });
     await new Otp({ email: cleanEmail, otp: generatedOtp }).save();
 
-    const mailOptions = {
-      from: '"MG Plants" <mgplants@zohomail.in>', // ✅ Updated sender email
-      to: cleanEmail,
-      subject: `Your Login OTP for MG Plants: ${generatedOtp}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 500px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 10px;">
-          <h2 style="color: #15803d;">MG Plants Security Verification</h2>
-          <p>Hello,</p>
-          <p>Use the following 6-digit One-Time Password (OTP) to securely log in to your account:</p>
-          <div style="font-size: 26px; font-weight: bold; letter-spacing: 4px; color: #0f172a; padding: 12px; background: #f0fdf4; text-align: center; border-radius: 8px; border: 1px solid #86efac;">
-            ${generatedOtp}
-          </div>
-          <p style="font-size: 12px; color: #64748b; margin-top: 15px;">This OTP is valid for 5 minutes. If you did not request this, please ignore this email.</p>
-        </div>`
-    };
-
-    transporter.sendMail(mailOptions, (error) => {
-      if (error) console.warn('Zoho Mail send warning:', error.message);
-    });
+    // Fire off the Brevo HTTP API request
+    sendOtpViaBrevo(cleanEmail, generatedOtp);
 
     res.json({ success: true, message: 'OTP sent to your email.' });
   } catch (err) { 
