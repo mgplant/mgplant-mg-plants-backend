@@ -8,51 +8,71 @@ app.use(express.json());
 app.use(cors());
 
 // --- 1. MONGODB CONNECTION ---
-// Replace with your actual MongoDB Atlas connection string if needed
-const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://username:password@cluster.mongodb.net/mgplants?retryWrites=true&w=majority';
+const dbPassword = "0j7XArbeyiP27O6o"; 
+const MONGO_URI = `mongodb+srv://mgplants_db_user:${dbPassword}@cluster0.cqsdy2b.mongodb.net/mgplants?retryWrites=true&w=majority&appName=Cluster0`;
 
 mongoose.connect(MONGO_URI)
-  .then(() => console.log('🌿 Connected to MongoDB Atlas successfully'))
+  .then(async () => {
+    console.log('🌿 Connected to MongoDB Atlas successfully');
+    await seedDefaultProducts(); // Automatically adds products if database is empty
+  })
   .catch(err => console.error('MongoDB connection error:', err));
 
-// --- 2. DATABASE SCHEMAS & MODELS ---
-
-// User Schema
+// --- 2. DATABASE SCHEMAS ---
 const userSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true }
+  name: String,
+  email: { type: String, unique: true },
+  password: String
 });
 const User = mongoose.model('User', userSchema);
 
-// Product Schema
 const productSchema = new mongoose.Schema({
   id: String,
   name: String,
   category: String,
   price: Number,
   origPrice: Number,
-  bestSeller: Boolean,
   image: String,
-  stockQuantity: { type: Number, default: 50 }
+  bestSeller: Boolean
 });
 const Product = mongoose.model('Product', productSchema);
 
-// Order Schema (Tracks Customer Details, Items, and Status)
 const orderSchema = new mongoose.Schema({
   customerName: String,
   phone: String,
   address: String,
   items: Array,
   totalAmount: Number,
-  status: { type: String, default: 'Pending' }, // Pending, Confirmed, Cancelled, Delivered
+  status: { type: String, default: 'Pending' },
   createdAt: { type: Date, default: Date.now }
 });
 const Order = mongoose.model('Order', orderSchema);
 
-// --- 3. API ROUTES ---
+// --- 3. AUTO-SEED INITIAL PRODUCTS ---
+async function seedDefaultProducts() {
+  try {
+    const count = await Product.countDocuments();
+    if (count === 0) {
+      const defaultProducts = [
+        { id: 'p1', name: 'Snake Plant', category: 'Indoor Plants', price: 199, origPrice: 279, bestSeller: true, image: 'https://images.unsplash.com/photo-1593482834166-d34559eb4e1c?w=500' },
+        { id: 'p2', name: 'Peace Lily', category: 'Indoor Plants', price: 249, origPrice: 349, bestSeller: true, image: 'https://images.unsplash.com/photo-1592841200221-a689c1f07441?w=500' },
+        { id: 'p3', name: 'ZZ Plant', category: 'Indoor Plants', price: 299, origPrice: 399, bestSeller: true, image: 'https://images.unsplash.com/photo-1632207188724-18a22ec24765?w=500' },
+        { id: 'p4', name: 'Mango Grafted Sapling', category: 'Fruit Plants', price: 349, origPrice: 499, bestSeller: true, image: 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=500' },
+        { id: 'p5', name: 'Lemon Live Plant', category: 'Fruit Plants', price: 229, origPrice: 310, bestSeller: false, image: 'https://images.unsplash.com/photo-1533038590840-1cde6e668a91?w=500' },
+        { id: 'p6', name: 'Hybrid Tomato Seeds (50g)', category: 'Seeds', price: 99, origPrice: 150, bestSeller: false, image: 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=500' },
+        { id: 'p7', name: 'Paddy Seeds Premium (500g)', category: 'Seeds', price: 149, origPrice: 199, bestSeller: true, image: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=500' }
+      ];
+      await Product.insertMany(defaultProducts);
+      console.log('🌱 Default plants and seeds seeded successfully into MongoDB!');
+    }
+  } catch (err) {
+    console.error('Error seeding products:', err);
+  }
+}
 
-// Get Product Catalog
+// --- 4. API ROUTES ---
+
+// Fetch Products
 app.get('/api/products', async (req, res) => {
   try {
     const products = await Product.find();
@@ -62,88 +82,70 @@ app.get('/api/products', async (req, res) => {
   }
 });
 
-// User Registration
+// Authentication Routes
 app.post('/api/register', async (req, res) => {
   try {
     const { name, email, password } = req.body;
-    const existingUser = await User.findOne({ email });
-    if (existingUser) return res.json({ success: false, message: 'Email already registered.' });
-
     const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = new User({ name, email, password: hashedPassword });
     await newUser.save();
-
-    res.json({ success: true, user: { id: newUser._id, name: newUser.name, email: newUser.email } });
+    res.json({ success: true, user: { name, email } });
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Server error during registration.' });
+    res.status(500).json({ success: false, message: 'Registration failed' });
   }
 });
 
-// User Login
 app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     const user = await User.findOne({ email });
-    if (!user) return res.json({ success: false, message: 'User not found.' });
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.json({ success: false, message: 'Incorrect password.' });
-
-    res.json({ success: true, user: { id: user._id, name: user.name, email: user.email } });
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.json({ success: false, message: 'Invalid credentials' });
+    }
+    res.json({ success: true, user: { name: user.name, email: user.email } });
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Server error during login.' });
+    res.status(500).json({ success: false, message: 'Login failed' });
   }
 });
 
-// Create Order (From Customer Checkout)
+// Order Management Routes
 app.post('/api/orders', async (req, res) => {
   try {
-    const { customerName, phone, address, items, totalAmount } = req.body;
-    if (!customerName || !phone || !address || !items || items.length === 0) {
-      return res.json({ success: false, message: 'Missing required order details.' });
-    }
-
-    const newOrder = new Order({ customerName, phone, address, items, totalAmount });
+    const newOrder = new Order(req.body);
     await newOrder.save();
-    
-    res.json({ success: true, orderId: newOrder._id });
+    res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Server error saving order.' });
+    res.status(500).json({ success: false, message: 'Error saving order' });
   }
 });
 
-// Admin: Fetch All Customer Orders
 app.get('/api/admin/orders', async (req, res) => {
   try {
     const orders = await Order.find().sort({ createdAt: -1 });
     res.json(orders);
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Error fetching admin orders.' });
+    res.status(500).json({ success: false, message: 'Error fetching orders' });
   }
 });
 
-// Customer: Cancel Order (Within 4 Hours Window)
 app.post('/api/orders/cancel/:id', async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
-    if (!order) return res.json({ success: false, message: 'Order not found.' });
-
     const hoursElapsed = (Date.now() - new Date(order.createdAt).getTime()) / (1000 * 60 * 60);
+    
     if (hoursElapsed > 4) {
       return res.json({ success: false, message: 'Cancellation window (4 hours) has expired.' });
     }
-
+    
     order.status = 'Cancelled';
     await order.save();
-    
     res.json({ success: true, message: 'Order successfully cancelled.' });
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Error processing cancellation.' });
+    res.status(500).json({ success: false, message: 'Cancellation error.' });
   }
 });
 
-// --- 4. START SERVER ---
+// --- 5. START SERVER ---
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🚀 MG Plants Backend running live on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 MG Plants Backend running on port ${PORT}`));  
+    
