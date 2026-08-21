@@ -1,140 +1,90 @@
 const express = require('express');
-const path = require('path');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const bcrypt = require('bcryptjs');
+
 const app = express();
-
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(cors());
 
-// Mock Database for Products and Orders
-let products = [
-    { 
-        id: 1, 
-        name: "Money Plant (Indoor)", 
-        price: 149, 
-        description: "A gorgeous, low-maintenance indoor plant known for bringing prosperity and purifying air. Perfect for home desks and living rooms.", 
-        deliveryTime: "3 to 4 days all over West Bengal",
-        reviews: [
-            { user: "Subrata M.", rating: 5, comment: "Healthy plant received in 3 days!" }
-        ]
-    }
-];
+// --- 1. MONGODB CONNECTION ---
+const dbPassword = "0j7XArbeyiP27O6o"; 
+const MONGO_URI = `mongodb+srv://mgplants_db_user:${dbPassword}@cluster0.cqsdy2b.mongodb.net/mgplants?retryWrites=true&w=majority&appName=Cluster0`;
 
-let orders = [];
+mongoose.connect(MONGO_URI)
+  .then(async () => {
+    console.log('🌿 Connected to MongoDB Atlas successfully');
+  })
+  .catch(err => console.error('MongoDB connection error:', err));
 
-// Helper: Generate default tracking ID format
-const generateTrackingId = () => 'MG-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+// --- 2. DATABASE SCHEMAS ---
+const userSchema = new mongoose.Schema({ name: String, email: { type: String, unique: true }, password: String });
+const User = mongoose.model('User', userSchema);
 
-// 1. API: Get Product Details & Reviews
-app.get('/api/product/:id', (req, res) => {
-    const product = products.find(p => p.id == req.params.id);
-    if(!product) return res.status(404).json({ error: "Product not found" });
-    res.json(product);
+const productSchema = new mongoose.Schema({ id: String, name: String, category: String, price: Number, origPrice: Number, image: String, bestSeller: Boolean });
+const Product = mongoose.model('Product', productSchema);
+
+// 🆕 UPDATED: Added paymentStatus field
+const orderSchema = new mongoose.Schema({ 
+  trackingId: String, 
+  customerName: String, 
+  phone: String, 
+  address: String, 
+  items: Array, 
+  totalAmount: Number, 
+  status: { type: String, default: 'Pending' }, 
+  paymentStatus: { type: String, default: 'Payment Pending' }, 
+  createdAt: { type: Date, default: Date.now } 
+});
+const Order = mongoose.model('Order', orderSchema);
+
+// --- 3. API ROUTES ---
+app.get('/api/products', async (req, res) => { try { res.json(await Product.find()); } catch (err) { res.status(500).json({ success: false }); } });
+
+app.post('/api/admin/products/:id', async (req, res) => {
+  try {
+    const updatedProduct = await Product.findOneAndUpdate(
+      { id: req.params.id }, 
+      { $set: { name: req.body.name, price: req.body.price, origPrice: req.body.origPrice, image: req.body.image } }, 
+      { new: true }
+    );
+    res.json({ success: true, product: updatedProduct });
+  } catch (err) { res.status(500).json({ success: false, message: 'Update failed' }); }
 });
 
-// 2. API: Submit Customer Review (Under Product Details)
-app.post('/api/review/:id', (req, res) => {
-    const product = products.find(p => p.id == req.params.id);
-    if(product) {
-        product.reviews.unshift({ 
-            user: req.body.user, 
-            rating: Number(req.body.rating), 
-            comment: req.body.comment 
-        });
-        res.json({ success: true });
-    } else {
-        res.status(404).json({ error: "Product not found" });
-    }
+app.post('/api/register', async (req, res) => { try { const { name, email, password } = req.body; const hashedPassword = await bcrypt.hash(password, 10); const newUser = new User({ name, email, password: hashedPassword }); await newUser.save(); res.json({ success: true, user: { name, email } }); } catch (err) { res.status(500).json({ success: false }); } });
+app.post('/api/login', async (req, res) => { try { const { email, password } = req.body; const user = await User.findOne({ email }); if (!user || !(await bcrypt.compare(password, user.password))) return res.json({ success: false }); res.json({ success: true, user: { name: user.name, email: user.email } }); } catch (err) { res.status(500).json({ success: false }); } });
+
+app.post('/api/orders', async (req, res) => { 
+  try { 
+    const trackingId = 'MG-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+    const initialPaymentStatus = req.body.address.includes('[Online]') ? 'Payment Pending' : 'Payment Pending (COD)';
+    const newOrder = new Order({ ...req.body, trackingId, paymentStatus: initialPaymentStatus }); 
+    await newOrder.save(); 
+    res.json({ success: true, trackingId }); 
+  } catch (err) { res.status(500).json({ success: false }); } 
 });
 
-// 3. API: Checkout & Order Creation (Detailed Fee Structure: ₹99 Delivery + ₹5 Platform Fee)
-app.post('/api/checkout', (req, res) => {
-    const { productId, paymentMethod } = req.body;
-    const product = products.find(p => p.id == productId);
-    const itemPrice = product ? product.price : 149;
-    const deliveryFee = 99;
-    const platformFee = 5;
+app.get('/api/admin/orders', async (req, res) => { try { res.json(await Order.find().sort({ createdAt: -1 })); } catch (err) { res.status(500).json({ success: false }); } });
 
-    const newOrder = {
-        orderId: 'ORD-' + Date.now(),
-        productName: product ? product.name : "Money Plant",
-        itemPrice: itemPrice,
-        deliveryFee: deliveryFee,
-        platformFee: platformFee,
-        totalAmount: itemPrice + deliveryFee + platformFee, // Total ₹253
-        paymentMethod: paymentMethod, // 'Online' or 'COD'
-        status: paymentMethod === 'Online' ? 'Paid / Confirmed' : 'Pending (COD)',
-        trackingId: generateTrackingId(), // Default tracking ID generated
-        returnRequested: false, // ARTO flag
-        refundStatus: 'None', // 48-Hour Refund SLA tracker
-        orderDate: new Date().toLocaleDateString()
-    };
-
-    orders.push(newOrder);
-    res.json({ success: true, order: newOrder });
+// Update Delivery Status Route
+app.post('/api/admin/order-status/:id', async (req, res) => {
+  try {
+    await Order.findByIdAndUpdate(req.params.id, { status: req.body.status });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false }); }
 });
 
-// 4. API: Customer Order Lookup (Supports 3-Day Return Policy & ARTO)
-app.get('/api/order/:id', (req, res) => {
-    const order = orders.find(o => o.orderId === req.params.id);
-    if(!order) return res.status(404).json({ error: "Order not found" });
-    res.json(order);
+// 🆕 NEW: Update Payment Status Route (Paid vs Payment Pending)
+app.post('/api/admin/payment-status/:id', async (req, res) => {
+  try {
+    await Order.findByIdAndUpdate(req.params.id, { paymentStatus: req.body.paymentStatus });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false }); }
 });
 
-// 5. API: Customer Request Return (ARTO & 3-Day Return Policy)
-app.post('/api/customer/request-return', (req, res) => {
-    const { orderId } = req.body;
-    const order = orders.find(o => o.orderId === orderId);
-    if(order) {
-        order.returnRequested = true;
-        order.status = 'ARTO Return Requested';
-        res.json({ success: true, message: "Return request submitted successfully." });
-    } else {
-        res.status(404).json({ error: "Order not found" });
-    }
-});
+app.post('/api/orders/cancel/:id', async (req, res) => { try { const order = await Order.findById(req.params.id); if ((Date.now() - new Date(order.createdAt).getTime()) / (1000 * 60 * 60) > 4) return res.json({ success: false, message: 'Expired.' }); order.status = 'Cancelled'; await order.save(); res.json({ success: true, message: 'Cancelled.' }); } catch (err) { res.status(500).json({ success: false }); } });
 
-// 6. API: Download Digital Invoice (For Online Paid Orders)
-app.get('/api/invoice/:id', (req, res) => {
-    const order = orders.find(o => o.orderId === req.params.id);
-    if(!order) return res.status(404).send("Order not found");
-    
-    res.send(`
-        <div style="font-family: Arial; padding: 20px; max-width: 500px; margin: auto; border: 1px solid #ccc;">
-            <h2>MG PLANTS - TAX INVOICE</h2>
-            <p><strong>Order ID:</strong> ${order.orderId}</p>
-            <p><strong>Tracking ID:</strong> ${order.trackingId}</p>
-            <hr>
-            <p>Item: ${order.productName} - ₹${order.itemPrice}</p>
-            <p>Delivery Fee: ₹${order.deliveryFee}</p>
-            <p>Platform Fee: ₹${order.platformFee}</p>
-            <hr>
-            <h3>Total Paid: ₹${order.totalAmount} (Paid Online)</h3>
-            <p style="color: #15803d; font-weight: bold;">Status: Paid & Verified</p>
-            <small>Delivery time: 3 to 4 days all over West Bengal. mgplants.in</small>
-        </div>
-    `);
-});
-
-// 7. API: Get All Orders for Admin Panel (Order Status & Refund Control)
-app.get('/api/admin/orders', (req, res) => {
-    res.json(orders);
-});
-
-// 8. API: Admin Update Status & Process Refund (Within 48-Hour SLA)
-app.post('/api/admin/update-order', (req, res) => {
-    const { orderId, newStatus } = req.body;
-    const order = orders.find(o => o.orderId === orderId);
-    if(order) {
-        order.status = newStatus;
-        if(newStatus === 'Refund Processed') {
-            order.refundStatus = 'Refund Completed (Within 48h SLA)';
-        }
-        res.json({ success: true });
-    } else {
-        res.status(404).json({ error: "Order not found" });
-    }
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`MG Plants Server running on port ${PORT}`));
+// --- 4. START SERVER ---
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`🚀 MG Plants Backend running on port ${PORT}`));
