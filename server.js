@@ -48,22 +48,40 @@ const orderSchema = new mongoose.Schema({
 });
 const Order = mongoose.model('Order', orderSchema);
 
-// --- 3. AUTO-SEED INITIAL PRODUCTS ---
+// --- 3. AUTO-SEED COMPREHENSIVE PLANT CATALOG ---
 async function seedDefaultProducts() {
   try {
     const count = await Product.countDocuments();
     if (count === 0) {
       const defaultProducts = [
-        { id: 'p1', name: 'Snake Plant', category: 'Indoor Plants', price: 199, origPrice: 279, bestSeller: true, image: 'https://images.unsplash.com/photo-1593482834166-d34559eb4e1c?w=500' },
+        // Indoor Plants
+        { id: 'p1', name: 'Snake Plant (Sansevieria)', category: 'Indoor Plants', price: 199, origPrice: 279, bestSeller: true, image: 'https://images.unsplash.com/photo-1593482834166-d34559eb4e1c?w=500' },
         { id: 'p2', name: 'Peace Lily', category: 'Indoor Plants', price: 249, origPrice: 349, bestSeller: true, image: 'https://images.unsplash.com/photo-1592841200221-a689c1f07441?w=500' },
         { id: 'p3', name: 'ZZ Plant', category: 'Indoor Plants', price: 299, origPrice: 399, bestSeller: true, image: 'https://images.unsplash.com/photo-1632207188724-18a22ec24765?w=500' },
-        { id: 'p4', name: 'Mango Grafted Sapling', category: 'Fruit Plants', price: 349, origPrice: 499, bestSeller: true, image: 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=500' },
-        { id: 'p5', name: 'Lemon Live Plant', category: 'Fruit Plants', price: 229, origPrice: 310, bestSeller: false, image: 'https://images.unsplash.com/photo-1533038590840-1cde6e668a91?w=500' },
-        { id: 'p6', name: 'Hybrid Tomato Seeds (50g)', category: 'Seeds', price: 99, origPrice: 150, bestSeller: false, image: 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=500' },
-        { id: 'p7', name: 'Paddy Seeds Premium (500g)', category: 'Seeds', price: 149, origPrice: 199, bestSeller: true, image: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=500' }
+        { id: 'p4', name: 'Money Plant Golden', category: 'Indoor Plants', price: 149, origPrice: 199, bestSeller: false, image: 'https://images.unsplash.com/photo-1614594975525-e45190c55d0b?w=500' },
+
+        // Outdoor Plants
+        { id: 'p5', name: 'Areca Palm', category: 'Outdoor Plants', price: 399, origPrice: 549, bestSeller: true, image: 'https://images.unsplash.com/photo-1615967963246-77ae8419c86e?w=500' },
+        { id: 'p6', name: 'Ficus Benjamina', category: 'Outdoor Plants', price: 349, origPrice: 450, bestSeller: false, image: 'https://images.unsplash.com/photo-1599598425838-8040b81f13f6?w=500' },
+        { id: 'p7', name: 'Neem Tree Sapling', category: 'Outdoor Plants', price: 129, origPrice: 180, bestSeller: false, image: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=500' },
+
+        // Flower Plants
+        { id: 'p8', name: 'Hibiscus (Guda) Red', category: 'Flower Plants', price: 179, origPrice: 249, bestSeller: true, image: 'https://images.unsplash.com/photo-1588610344406-444747c3cfd1?w=500' },
+        { id: 'p9', name: 'Jasmine (Mogra) Fragrant', category: 'Flower Plants', price: 199, origPrice: 299, bestSeller: true, image: 'https://images.unsplash.com/photo-1558383409-ab1643c72b2a?w=500' },
+        { id: 'p10', name: 'Rose Plant (English Hybrid)', category: 'Flower Plants', price: 219, origPrice: 299, bestSeller: false, image: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=500' },
+
+        // Fruit Plants / Saplings
+        { id: 'p11', name: 'Mango Grafted Sapling (Amrapali)', category: 'Fruit Plants', price: 349, origPrice: 499, bestSeller: true, image: 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=500' },
+        { id: 'p12', name: 'Lemon Live Plant (Kagzi)', category: 'Fruit Plants', price: 229, origPrice: 310, bestSeller: false, image: 'https://images.unsplash.com/photo-1533038590840-1cde6e668a91?w=500' },
+        { id: 'p13', name: 'Guava Thai All-Season', category: 'Fruit Plants', price: 279, origPrice: 399, bestSeller: true, image: 'https://images.unsplash.com/photo-1536510233921-8e1043f0c33e?w=500' },
+
+        // Seeds
+        { id: 'p14', name: 'Hybrid Tomato Seeds (50g)', category: 'Seeds', price: 99, origPrice: 150, bestSeller: false, image: 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=500' },
+        { id: 'p15', name: 'Paddy Seeds Premium (500g)', category: 'Seeds', price: 149, origPrice: 199, bestSeller: true, image: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=500' },
+        { id: 'p16', name: 'Marigold Flower Seeds', category: 'Seeds', price: 79, origPrice: 120, bestSeller: false, image: 'https://images.unsplash.com/photo-1606851094090-827236dc9969?w=500' }
       ];
       await Product.insertMany(defaultProducts);
-      console.log('🌱 Default plants and seeds seeded successfully into MongoDB!');
+      console.log('🌱 Full catalog (Indoor, Outdoor, Flowers, Fruits, Seeds) seeded into MongoDB!');
     }
   } catch (err) {
     console.error('Error seeding products:', err);
