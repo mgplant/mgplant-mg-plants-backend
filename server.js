@@ -24,7 +24,18 @@ const User = mongoose.model('User', userSchema);
 const productSchema = new mongoose.Schema({ id: String, name: String, category: String, price: Number, origPrice: Number, image: String, bestSeller: Boolean });
 const Product = mongoose.model('Product', productSchema);
 
-const orderSchema = new mongoose.Schema({ trackingId: String, customerName: String, phone: String, address: String, items: Array, totalAmount: Number, status: { type: String, default: 'Pending' }, createdAt: { type: Date, default: Date.now } });
+// 🆕 UPDATED: Added paymentStatus field
+const orderSchema = new mongoose.Schema({ 
+  trackingId: String, 
+  customerName: String, 
+  phone: String, 
+  address: String, 
+  items: Array, 
+  totalAmount: Number, 
+  status: { type: String, default: 'Pending' }, 
+  paymentStatus: { type: String, default: 'Payment Pending' }, 
+  createdAt: { type: Date, default: Date.now } 
+});
 const Order = mongoose.model('Order', orderSchema);
 
 // --- 3. API ROUTES ---
@@ -47,7 +58,8 @@ app.post('/api/login', async (req, res) => { try { const { email, password } = r
 app.post('/api/orders', async (req, res) => { 
   try { 
     const trackingId = 'MG-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-    const newOrder = new Order({ ...req.body, trackingId }); 
+    const initialPaymentStatus = req.body.address.includes('[Online]') ? 'Payment Pending' : 'Payment Pending (COD)';
+    const newOrder = new Order({ ...req.body, trackingId, paymentStatus: initialPaymentStatus }); 
     await newOrder.save(); 
     res.json({ success: true, trackingId }); 
   } catch (err) { res.status(500).json({ success: false }); } 
@@ -55,10 +67,18 @@ app.post('/api/orders', async (req, res) => {
 
 app.get('/api/admin/orders', async (req, res) => { try { res.json(await Order.find().sort({ createdAt: -1 })); } catch (err) { res.status(500).json({ success: false }); } });
 
-// 🆕 NEW: Update Order Status Route (Shipped, Delivered, etc.)
+// Update Delivery Status Route
 app.post('/api/admin/order-status/:id', async (req, res) => {
   try {
     await Order.findByIdAndUpdate(req.params.id, { status: req.body.status });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false }); }
+});
+
+// 🆕 NEW: Update Payment Status Route (Paid vs Payment Pending)
+app.post('/api/admin/payment-status/:id', async (req, res) => {
+  try {
+    await Order.findByIdAndUpdate(req.params.id, { paymentStatus: req.body.paymentStatus });
     res.json({ success: true });
   } catch (err) { res.status(500).json({ success: false }); }
 });
