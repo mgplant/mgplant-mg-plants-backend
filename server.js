@@ -73,7 +73,7 @@ const orderSchema = new mongoose.Schema({
 const Order = mongoose.model('Order', orderSchema);
 
 // --- 3. BREVO HTTP EMAIL API ---
-const BREVO_API_KEY = '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'; 
+const BREVO_API_KEY = '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'; 
 
 async function sendOtpViaBrevo(recipientEmail, otpCode) {
   try {
