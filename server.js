@@ -46,7 +46,7 @@ const Product = mongoose.model('Product', productSchema);
 const orderSchema = new mongoose.Schema({ 
   trackingId: String, customerName: String, phone: String, address: String, items: Array, totalAmount: Number, 
   status: { type: String, default: 'Pending' }, paymentStatus: { type: String, default: 'Payment Pending' }, 
-  returnReason: String, returnImage: String, refundRequested: { type: Boolean, default: false }, 
+  returnReason: String, returnImage: String, refundReason: String, refundImage: String, refundRequested: { type: Boolean, default: false }, 
   createdAt: { type: Date, default: Date.now } 
 });
 const Order = mongoose.model('Order', orderSchema);
@@ -94,7 +94,7 @@ app.post('/api/review/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false }); } 
 });
 
-// --- 5. ADMIN CONTROL ROUTES (NEW CRUD CAPABILITIES) ---
+// --- 5. ADMIN CONTROL ROUTES (CRUD CAPABILITIES) ---
 
 // CREATE Product
 app.post('/api/admin/products', async (req, res) => {
@@ -103,15 +103,15 @@ app.post('/api/admin/products', async (req, res) => {
     const newProduct = new Product({ ...req.body, id: newId });
     await newProduct.save();
     res.json({ success: true, product: newProduct });
-  } catch (err) { res.status(500).json({ success: false, message: 'Failed to create product.' }); }
+  } catch (err) { res.json({ success: false, message: 'Failed to create product.' }); }
 });
 
-// UPDATE Product (Rename, Stock, Description, Price)
+// UPDATE Product
 app.post('/api/admin/products/:id', async (req, res) => { 
   try { 
     const updatedProduct = await Product.findOneAndUpdate({ id: req.params.id }, { $set: req.body }, { new: true }); 
     res.json({ success: true, product: updatedProduct }); 
-  } catch (err) { res.status(500).json({ success: false, message: 'Update failed' }); } 
+  } catch (err) { res.json({ success: false, message: 'Update failed' }); } 
 });
 
 // DELETE Product
@@ -119,48 +119,55 @@ app.delete('/api/admin/products/:id', async (req, res) => {
   try {
     await Product.findOneAndDelete({ id: req.params.id });
     res.json({ success: true, message: 'Product deleted successfully.' });
-  } catch(err) { res.status(500).json({ success: false, message: 'Deletion failed.' }); }
+  } catch(err) { res.json({ success: false, message: 'Deletion failed.' }); }
 });
 
-// --- 6. ORDERS ROUTES ---
+// --- 6. ORDERS & WORKFLOW ROUTES ---
 app.post('/api/orders', async (req, res) => { 
   try { 
     const trackingId = 'MG-' + Math.random().toString(36).substring(2, 8).toUpperCase(); 
-    const newOrder = new Order({ ...req.body, trackingId }); 
-    await newOrder.save(); res.json({ success: true, trackingId }); 
-  } catch (err) { res.status(500).json({ success: false }); } 
+    const initialPaymentStatus = req.body.address.includes('[Online]') ? 'Payment Under Review (Admin Verification)' : 'Payment Pending (COD)'; 
+    const newOrder = new Order({ ...req.body, trackingId, paymentStatus: initialPaymentStatus }); 
+    await newOrder.save(); 
+    res.json({ success: true, trackingId }); 
+  } catch (err) { res.json({ success: false }); } 
 });
 
 app.get('/api/admin/orders', async (req, res) => { 
   try { res.json(await Order.find().sort({ createdAt: -1 })); } 
-  catch (err) { res.status(500).json({ success: false }); } 
+  catch (err) { res.json({ success: false }); } 
 });
 
 app.post('/api/admin/order-status/:id', async (req, res) => { 
   try { await Order.findByIdAndUpdate(req.params.id, { status: req.body.status }); res.json({ success: true }); } 
-  catch (err) { res.status(500).json({ success: false }); } 
+  catch (err) { res.json({ success: false }); } 
 });
 
 app.post('/api/admin/payment-status/:id', async (req, res) => { 
   try { await Order.findByIdAndUpdate(req.params.id, { paymentStatus: req.body.paymentStatus }); res.json({ success: true }); } 
-  catch (err) { res.status(500).json({ success: false }); } 
+  catch (err) { res.json({ success: false }); } 
 });
 
 app.post('/api/orders/cancel/:id', async (req, res) => { 
-  try { await Order.findByIdAndUpdate(req.params.id, { status: 'Cancelled' }); res.json({ success: true }); } 
-  catch (err) { res.status(500).json({ success: false }); } 
+  try { await Order.findByIdAndUpdate(req.params.id, { status: 'Cancelled' }); res.json({ success: true, message: 'Order Cancelled.' }); } 
+  catch (err) { res.json({ success: false }); } 
 });
 
+// Customer Refund Request with Proof
 app.post('/api/orders/refund/:id', async (req, res) => { 
-  try { await Order.findByIdAndUpdate(req.params.id, { refundRequested: true, status: 'Refund Processing' }); res.json({ success: true }); } 
-  catch (err) { res.status(500).json({ success: false }); } 
+  try { 
+    await Order.findByIdAndUpdate(req.params.id, { refundRequested: true, status: 'Refund Reviewing', refundReason: req.body.reason, refundImage: req.body.image }); 
+    res.json({ success: true, message: 'Refund request submitted for admin review.' }); 
+  } catch (err) { res.json({ success: false }); } 
 });
 
+// Customer Return Request with Proof
 app.post('/api/orders/return/:id', async (req, res) => { 
-  try { await Order.findByIdAndUpdate(req.params.id, { status: 'ARTO Request', returnReason: req.body.reason, returnImage: req.body.image }); res.json({ success: true }); } 
-  catch (err) { res.status(500).json({ success: false }); } 
+  try { 
+    await Order.findByIdAndUpdate(req.params.id, { status: 'ARTO Reviewing', returnReason: req.body.reason, returnImage: req.body.image }); 
+    res.json({ success: true, message: 'Return request submitted. Admin will review within 48 hours of product receipt.' }); 
+  } catch (err) { res.json({ success: false }); } 
 });
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 MG Plants Backend running on port ${PORT}`));
-  
