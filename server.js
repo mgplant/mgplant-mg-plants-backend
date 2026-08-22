@@ -1,6 +1,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const bcrypt = require('bcryptjs'); // Added bcrypt for secure password hashing
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -18,16 +19,10 @@ mongoose.connect(MONGO_URI)
 const userSchema = new mongoose.Schema({ 
   name: String, 
   email: { type: String, unique: true, lowercase: true, trim: true }, 
+  password: { type: String, required: true }, // New encrypted password field
   createdAt: { type: Date, default: Date.now }
 });
 const User = mongoose.model('User', userSchema);
-
-const otpSchema = new mongoose.Schema({
-  email: { type: String, required: true, lowercase: true, trim: true },
-  otp: { type: String, required: true },
-  createdAt: { type: Date, default: Date.now, expires: 300 } 
-});
-const Otp = mongoose.model('Otp', otpSchema);
 
 const loginLogSchema = new mongoose.Schema({
   email: String,
@@ -72,97 +67,71 @@ const orderSchema = new mongoose.Schema({
 });
 const Order = mongoose.model('Order', orderSchema);
 
-// --- 3. BREVO HTTP EMAIL API ---
-const BREVO_API_KEY = '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'; 
+// --- 3. AUTHENTICATION (SIGNUP & LOGIN) ---
 
-async function sendOtpViaBrevo(recipientEmail, otpCode) {
-  try {
-    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {
-        'accept': 'application/json',
-        'api-key': BREVO_API_KEY,
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({
-        sender: { name: "MG Plants", email: "mgplants@zohomail.in" },
-        to: [{ email: recipientEmail }],
-        subject: `Your Login OTP for MG Plants: ${otpCode}`,
-        htmlContent: `
-          <div style="font-family: Arial, sans-serif; max-width: 500px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 10px;">
-            <h2 style="color: #15803d;">MG Plants Security Verification</h2>
-            <p>Hello,</p>
-            <p>Use the following 6-digit One-Time Password (OTP) to securely log in to your account:</p>
-            <div style="font-size: 26px; font-weight: bold; letter-spacing: 4px; color: #0f172a; padding: 12px; background: #f0fdf4; text-align: center; border-radius: 8px; border: 1px solid #86efac;">
-              ${otpCode}
-            </div>
-            <p style="font-size: 12px; color: #64748b; margin-top: 15px;">This OTP is valid for 5 minutes. If you did not request this, please ignore this email.</p>
-          </div>`
-      })
-    });
-
-    const data = await response.json();
-    if (!response.ok) {
-      console.warn('Brevo API Error:', data);
-    } else {
-      console.log('✅ OTP email successfully dispatched via Brevo API');
-    }
-  } catch (err) {
-    console.error('Email sending error:', err.message);
-  }
-}
-
-// --- 4. OTP AUTHENTICATION & LOGIN LOGS ---
-app.post('/api/auth/send-otp', async (req, res) => {
-  const { email } = req.body;
-  if (!email) return res.json({ success: false, message: 'Please enter a valid email address.' });
+// Route 1: Sign Up (Create Account)
+app.post('/api/auth/signup', async (req, res) => {
+  const { email, password, name } = req.body;
+  if (!email || !password) return res.json({ success: false, message: 'Email and password are required.' });
 
   const cleanEmail = email.toLowerCase().trim();
-  const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
 
   try {
-    await Otp.deleteMany({ email: cleanEmail });
-    await new Otp({ email: cleanEmail, otp: generatedOtp }).save();
+    const existingUser = await User.findOne({ email: cleanEmail });
+    if (existingUser) {
+      return res.json({ success: false, message: 'Account already exists. Please log in.' });
+    }
 
-    // Fire off the Brevo HTTP API request
-    sendOtpViaBrevo(cleanEmail, generatedOtp);
+    // Hash the password securely before saving
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
 
-    res.json({ success: true, message: 'OTP sent to your email.' });
+    const generatedName = name || cleanEmail.split('@')[0];
+    const newUser = new User({ 
+      name: generatedName, 
+      email: cleanEmail, 
+      password: hashedPassword 
+    });
+    
+    await newUser.save();
+    res.json({ success: true, user: { name: newUser.name, email: newUser.email } });
   } catch (err) { 
-    res.status(500).json({ success: false, message: 'Failed to generate OTP.' }); 
+    res.status(500).json({ success: false, message: 'Signup failed. Please try again.' }); 
   }
 });
 
-app.post('/api/auth/verify-otp', async (req, res) => {
-  const { email, otp } = req.body;
+// Route 2: Log In (Verify Account)
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
 
+  if (!email || !password) return res.json({ success: false, message: 'Please enter both email and password.' });
+  const cleanEmail = email.toLowerCase().trim();
+
   try {
-    const cleanEmail = email.toLowerCase().trim();
-    const record = await Otp.findOne({ email: cleanEmail, otp: otp.trim() });
-
-    if (!record) {
-      await new LoginLog({ email: cleanEmail, ip: clientIp, status: 'Failed', reason: 'Invalid or Expired OTP' }).save();
-      return res.json({ success: false, message: 'Invalid or expired OTP. Please try again.' });
-    }
-
-    let user = await User.findOne({ email: cleanEmail });
+    const user = await User.findOne({ email: cleanEmail });
+    
+    // Check if the user exists
     if (!user) {
-      const generatedName = cleanEmail.split('@')[0];
-      user = new User({ name: generatedName, email: cleanEmail });
-      await user.save();
+      await new LoginLog({ email: cleanEmail, ip: clientIp, status: 'Failed', reason: 'User Not Found' }).save();
+      return res.json({ success: false, message: 'Invalid email or password.' });
     }
 
-    await Otp.deleteMany({ email: cleanEmail });
-    await new LoginLog({ email: cleanEmail, ip: clientIp, status: 'Success' }).save();
+    // Compare the entered password with the hashed password in the database
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      await new LoginLog({ email: cleanEmail, ip: clientIp, status: 'Failed', reason: 'Incorrect Password' }).save();
+      return res.json({ success: false, message: 'Invalid email or password.' });
+    }
 
+    await new LoginLog({ email: cleanEmail, ip: clientIp, status: 'Success' }).save();
     res.json({ success: true, user: { name: user.name, email: user.email } });
   } catch (err) { 
-    res.status(500).json({ success: false, message: 'OTP verification failed.' }); 
+    res.status(500).json({ success: false, message: 'Login failed.' }); 
   }
 });
 
-// --- 5. PRODUCTS & STORE ROUTES ---
+// --- 4. PRODUCTS & STORE ROUTES ---
 app.get('/api/products', async (req, res) => { 
   try { res.json(await Product.find()); } 
   catch (err) { res.status(500).json({ success: false }); } 
@@ -258,6 +227,6 @@ app.post('/api/orders/cancel/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false }); } 
 });
 
-// --- 6. START SERVER ---
+// --- 5. START SERVER ---
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 MG Plants Backend running on port ${PORT}`));
